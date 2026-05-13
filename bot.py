@@ -17,28 +17,24 @@ GENRES = {
 
 def get_movie(genre_id, genre_name):
     page = random.randint(1, 5)
-
     url = 'https://api.themoviedb.org/3/discover/movie'
     params = {
-        'api_key':           tmdb_key,
-        'with_genres':       genre_id,
-        'sort_by':           'popularity.desc',
-        'vote_count.gte':    200,
-        'language':          'en-US',
-        'page':              page,
+        'api_key':        tmdb_key,
+        'with_genres':    genre_id,
+        'sort_by':        'popularity.desc',
+        'vote_count.gte': 200,
+        'language':       'en-US',
+        'page':           page,
     }
-
     try:
         response = requests.get(url, params=params, timeout=10)
         results  = response.json().get('results', [])
     except Exception:
         return None
-
     if not results:
         return None
 
-    movie = random.choice(results)
-
+    movie    = random.choice(results)
     title    = movie.get('title', 'Unknown')
     overview = movie.get('overview', 'No description available.')
     rating   = movie.get('vote_average', 0)
@@ -50,14 +46,10 @@ def get_movie(genre_id, genre_name):
         overview = overview[:297] + '...'
 
     stars = '⭐' * round(rating / 2)
-
     text = (
-        '🎭 Genre: <b>{genre_name}</b>\n'
-        '\n'
-        '🎬 <b>{title}</b>  ({year})\n'
-        '\n'
-        '{stars}  <b>{rating}/10</b>  ({votes} votes)\n'
-        '\n'
+        '🎭 Genre: <b>{genre_name}</b>\n\n'
+        '🎬 <b>{title}</b>  ({year})\n\n'
+        '{stars}  <b>{rating}/10</b>  ({votes} votes)\n\n'
         '📖 {overview}'
     ).format(
         genre_name=genre_name, title=title, year=year,
@@ -65,6 +57,33 @@ def get_movie(genre_id, genre_name):
         overview=overview
     )
     return text
+
+
+
+def send_genre_keyboard(chat_id):
+    keyboard = telebot.types.InlineKeyboardMarkup()
+    row = []
+    for genre_name in GENRES:
+        row.append(telebot.types.InlineKeyboardButton(
+            genre_name, callback_data='genre-' + genre_name
+        ))
+        if len(row) == 3:
+            keyboard.row(*row)
+            row = []
+    if row:
+        keyboard.row(*row)
+    bot.send_message(chat_id, '🎭 Choose a genre:', reply_markup=keyboard)
+
+
+
+def send_movie_result(from_id, genre_name):
+    bot.send_chat_action(from_id, 'typing')
+    result = get_movie(GENRES[genre_name], genre_name)
+    if result is None:
+        bot.send_message(from_id, '⚠️ Could not fetch a movie. Try again!')
+    else:
+        bot.send_message(from_id, result, parse_mode='HTML')
+
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -80,6 +99,10 @@ def start(message):
 
 @bot.message_handler(commands=['help'])
 def help_command(message):
+    keyboard = telebot.types.InlineKeyboardMarkup()
+    keyboard.add(telebot.types.InlineKeyboardButton(
+        'Data source: TMDB', url='https://www.themoviedb.org'
+    ))
     bot.send_message(
         message.from_user.id,
         '🆘 <b>Help</b>\n\n'
@@ -88,61 +111,25 @@ def help_command(message):
         '  • movie title and release year\n'
         '  • rating and number of votes\n'
         '  • short description\n\n'
-        'Each press gives a <b>different random movie</b> — try the same genre multiple times!\n\n'
-        'Data: The Movie Database (TMDB)',
-        parse_mode='HTML'
+        'Each press gives a <b>different random movie</b> — try the same genre multiple times!',
+        parse_mode='HTML',
+        reply_markup=keyboard
     )
 
 @bot.message_handler(commands=['movie'])
 def movie_command(message):
-    keyboard = telebot.types.InlineKeyboardMarkup()
-    row = []
-    for genre_name in GENRES:
-        row.append(
-            telebot.types.InlineKeyboardButton(
-                genre_name,
-                callback_data='genre-' + genre_name
-            )
-        )
-        if len(row) == 3:
-            keyboard.row(*row)
-            row = []
-    if row:
-        keyboard.row(*row)
-
-    bot.send_message(
-        message.chat.id,
-        '🎭 Choose a genre:',
-        reply_markup=keyboard
-    )
-
-
-def genre_callback(query):
-    bot.answer_callback_query(query.id)
-    genre_name = query.data[6:]
-    genre_id = GENRES[genre_name]
-
-    bot.send_chat_action(query.from_user.id, 'typing')
-
-    result = get_movie(genre_id, genre_name)
-
-    if result is None:
-        bot.send_message(query.from_user.id,
-                         '⚠️ Could not fetch a movie. Try again!')
-    else:
-        bot.send_message(query.from_user.id, result, parse_mode='HTML')
+    send_genre_keyboard(message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: True)
 def iq_callback(query):
-    data = query.data
-    if data.startswith('genre-'):
-        genre_callback(query)
+    bot.answer_callback_query(query.id)
+    if query.data.startswith('genre-'):
+        send_movie_result(query.from_user.id, query.data[6:])
     else:
         bot.send_message(query.from_user.id, 'Unexpected error. Try again.')
 
 @bot.message_handler(content_types=['text'])
 def get_text_messages(message):
-    bot.send_message(message.from_user.id,
-                     'Use /movie to get a movie recommendation 🎬')
+    bot.send_message(message.from_user.id, 'Use /movie to get a movie recommendation 🎬')
 
 bot.polling()
